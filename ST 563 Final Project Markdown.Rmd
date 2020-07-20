@@ -170,3 +170,43 @@ out=glmnet(redpredictors,redoutcome,alpha=0,lamda=grid)
 ridge.pred=predict(out,type="response",newx=redpredictorstest, s=bestlam)
 sum(round(ridge.pred)!=red_test$quality)/nrow(red_test)
 ```
+
+# Bagged Tree
+```{r baggytreehours, include = TRUE}
+namecheck <- c("fixed.acidity","volatile.acidity","citric.acid","residual.sugar","chlorides","free.sulfur.dioxide","total.sulfur.dioxide","density","pH","sulphates","alcohol","quality","quality2cat","quality3cat")
+
+red_train2 <- red_train
+names(red_train2) <- namecheck
+red_test2 <- red_test
+names(red_test2) <- namecheck
+
+bagfit <- randomForest(quality ~.-quality2cat-quality3cat, data=red_train2,mtry=11,importance=TRUE)
+
+yhat.bag = predict(bagfit, newdata=red_test2)
+mean((yhat.bag-red_test2$quality)^2)
+importance(bagfit)
+```
+
+# Random Forest
+```{r randomforesthours, include = TRUE}
+bestmse = 10000
+bestfitcount = 0
+set.seed(1)
+for(i in 1:10){
+  rffit <- randomForest(quality ~.-quality2cat-quality3cat,data=red_train2,mtry=i,importance=TRUE)
+  yhat.rf = predict(rffit,newdata=red_test2)
+  rfmse <- mean((yhat.rf-red_test2$quality)^2)
+  if(rfmse < bestmse){
+    bestmse = rfmse
+    bestfitcount = i
+    bestrf = rffit
+    bestpred = yhat.rf
+  }
+}
+
+bestmse
+bestfitcount
+bestrf
+importance(bestrf)
+```
+
