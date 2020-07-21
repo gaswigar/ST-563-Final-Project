@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(boot)
 library(randomForest)
 library(caret)
+library(knitr)
 library(GGally)
 library(glmnet)
 library(MASS)
@@ -212,3 +213,90 @@ importance(bestrf)
 varImpPlot(bestrf)
 ```
 
+
+```{r linear SVM}
+set.seed(48)
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+
+svm1 <- train(quality2cat ~. -quality, 
+              data = red_train,  
+              method = "svmLinear", 
+              trControl = train_control,  
+              preProcess = c("center","scale"), 
+              tuneGrid = expand.grid(C = seq(0.1, 2, length = 20)))
+
+test_pred_svm1 <- predict(svm1,
+                    newdata = red_test,
+                    type = "raw")
+
+conf_svm1<-confusionMatrix(
+  data = test_pred_svm1, 
+  reference = red_test$quality2cat)
+
+svm1_results<-data.frame(Type="Linear",
+                         Accuracy=conf_svm1$overall[1],
+                         PreCision=conf_svm1$byClass[5],
+                         Recall=conf_svm1$byClass[6]) 
+```
+
+
+```{r Radial SVM}
+set.seed(25)
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+
+svm2 <- train(quality2cat ~. -quality, 
+              data = red_train,  
+              method = "svmRadial", 
+              trControl = train_control, 
+              preProcess = c("center","scale"), 
+              tuneLength = 10)
+
+
+test_pred_svm2 <- predict(svm2,
+                    newdata = red_test,
+                    type = "raw")
+
+conf_svm2<-confusionMatrix(
+  data = test_pred_svm2, 
+  reference = red_test$quality2cat)
+
+svm2_results<-data.frame(Type="Radial",
+                         Accuracy=conf_svm2$overall[1],
+                         PreCision=conf_svm2$byClass[5],
+                         Recall=conf_svm2$byClass[6]) 
+```
+
+
+
+```{r Polynomial SVM}
+set.seed(21)
+svm3 <- train(quality2cat ~. -quality, 
+              data = red_train, 
+              method = "svmPoly", 
+              trControl = train_control, 
+              preProcess = c("center","scale"), 
+              tuneLength = 4)
+
+test_pred_svm3 <- predict(svm3,
+                    newdata = red_test,
+                    type = "raw")
+
+conf_svm3<-confusionMatrix(
+  data = test_pred_svm3, 
+  reference = red_test$quality2cat)
+
+svm3_results<-data.frame(Type="Polynomial",
+                         Accuracy=conf_svm3$overall[1],
+                         PreCision=conf_svm3$byClass[5],
+                         Recall=conf_svm3$byClass[6]) 
+```
+
+```{r SVM Results}
+svm_results<-bind_rows(svm1_results,
+                       svm2_results,
+                       svm3_results) %>%
+  mutate(MissClass=1-Accuracy) %>%
+  kable()
+
+svm_results
+```
