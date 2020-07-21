@@ -185,6 +185,7 @@ bagfit <- randomForest(quality ~.-quality2cat-quality3cat, data=red_train2,mtry=
 yhat.bag = predict(bagfit, newdata=red_test2)
 mean((yhat.bag-red_test2$quality)^2)
 importance(bagfit)
+varImpPlot(bagfit)
 ```
 
 # Random Forest
@@ -208,5 +209,6 @@ bestmse
 bestfitcount
 bestrf
 importance(bestrf)
+varImpPlot(bestrf)
 ```
 
