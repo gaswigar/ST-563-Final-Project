@@ -1,0 +1,257 @@
+---
+title: "ST 563 Final Project"
+author: "Jesse DeLaRosa, Grant Swigart, Yang Yue, Jenna Tan"
+date: "June 30, 2020"
+output: html_document
+---
+
+```{r Setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(boot)
+library(randomForest)
+library(caret)
+library(GGally)
+library(glmnet)
+library(MASS)
+library(class)
+library(tidyverse)
+library(leaps)
+library(maptree)
+library(tree)
+library(pastecs)
+library(kableExtra)
+
+
+
+```{r Fileread, include=FALSE, message=FALSE, warning=FALSE}
+# Jesse's file path: C:/Users/Jesse DeLaRosa/Desktop/Project/Grad School/ST 563 Statistical Learning/Final Project/winequality-red.csv
+# Jenna's working directory: C:/Users/ajtan/Dropbox/2020 Summer/ST 563/Final Project/ST-563-Final-Project
+
+setwd("C:/Users/ajtan/Dropbox/2020 Summer/ST 563/Final Project/ST-563-Final-Project")
+red<-read_delim("./Wine Data-Original/winequality-red.csv",delim = ';')
+red <-read.csv(file ="C:/Users/YYUE/Desktop/ST563/Project/winequality-red.csv", header = TRUE, sep = ";")
+```
+```{r Descriptive and Histograms}
+stat.desc(red)
+par(mfrow=c(3,4))
+names = names(red)
+> for (name in names) {
++ hist(red[,name],xlab=name,main=paste("Histogram of",name))
++ }
+
+
+```{r Categorization, include = TRUE}
+# Creating Categorical Variables: quality2cat, quality3cat
+red <- red %>% mutate("quality2cat" = factor(ifelse(quality > 0 & quality <= 5, "Low", "High")))
+red <- red %>% mutate("quality3cat" = factor(ifelse(quality > 0 & quality <=3, "Low",
+                                                                     ifelse(quality > 3 & quality <= 7, "Mid", "High"))))
+
+red %>% group_by(quality3cat) %>% summarise(count = n())
+red %>% group_by(quality2cat) %>% summarize(count = n())
+unique(red$quality)
+```
+
+I think it's worth noting that the range of possible scores for wine quality is 1-10, however the data only reflects scores of 3-8.
+
+The three category split of quality leads to low counts in some of the categories. Therefore, the two category split (low/high) is better as it provides a large number of counts in each category.
+
+```{r Splitting, message=FALSE}
+set.seed(30)
+trainIndex <- createDataPartition(red$quality,
+                                  p = .8, 
+                                  list = FALSE)
+red_train<-red[c(trainIndex),]
+red_test<-red[-c(trainIndex),]
+
+write_csv(red_train,"./Test and Training Data/training.csv")
+write_csv(red_test,"./Test and Training Data/testing.csv")
+```
+
+```{r Plots}
+red_train %>% 
+  dplyr::select(c("fixed acidity","volatile acidity","citric acid","pH","quality")) %>%
+  ggpairs()
+
+red_train %>% 
+  dplyr::select(c("free sulfur dioxide","total sulfur dioxide","chlorides","sulphates","quality")) %>%
+  ggpairs()
+
+red_train %>% 
+  dplyr::select(c("residual sugar","alcohol","density")) %>%
+  ggpairs()
+```
+
+```{r LinearReg}
+# Be sure to remove the categorical variables from predictors
+lm.fit = lm(quality ~.-quality2cat -quality3cat, data=red_train)
+lm.pred = predict(lm.fit, red_test)
+summary(lm.fit)
+lm_error=mean((red_test$quality – lm_pred)^2))
+```
+# obtain best subset model
+Best.fit=regsubsets(quality~. - quality2cat - quality3cat, data=red_train, nvmax=11)
+Trainmatix=model.matrix(quality~. - quality2cat - quality3cat, data=red_train, nvmax=11)
+Train_MSE=rep(NA, 11)
+for (I in 1:11){
+     coef=coef(best.fit,id=i)
+pred <- trainmatrix[, names(coef)] %*% coef
+train_MSE[i] <- mean((red_train$quality  - pred)^2)
+}
+plot(train_MSE, xlab = "Number of Predictors", ylab="Training MSE", type = "b")
+
+testmatrix <- model.matrix(quality~. - quality2cat - quality3cat, data = red_test, nvmax = 11)
+test_MSE <- rep(NA, 11)
+for(i in 1:11){
+coef <-coef(fit, id = i)
+pred <- testmatrix[, names(coef)] %*% coef
+test_MSE[i] <- mean((red_test$yquality  - pred)^2)
+}
+plot(test_MSE, xlab = "Number of Predictors", ylab="Testing MSE", type = "b")
+
+which.min(test_MSE)
+
+test_MSE[6]
+
+coef(best.fit, which.min(test_MSE))
+
+best.subset.fit=summary(best.fit)
+which.min(best.subset.fit$cp)
+which.min(best.subset.fit$bic)
+which.max(best.subset.fit$adjr2)
+
+coef(best.fit, id=6)
+
+
+##Forward
+Fwd=regsubsts(quality~. - quality2cat - quality3cat, data=red_train, nvmax=11, method=”forward”)
+Fwd.fit=summary(fwd)
+Which.min(fwd.fit$cp)
+Which.min(fwd.fit$bic)
+Which.max(fwd.fit$adjr2)
+
+##Backward
+Bwd= regsubsts(quality~. - quality2cat - quality3cat, data=red_train, nvmax=11, method=”backward”)
+bwd.fit=summary(bwd)
+Which.min(bwd.fit$cp)
+Which.min(bwd.fit$bic)
+Which.max(bwd.fit$adjr2)
+
+
+
+
+
+
+
+```{r LogisticReg}
+set.seed(1)
+train.matrix=model.matrix(quality2cat~.-quality -quality3cat,data=red_train)[,-1]
+test.matrix=model.matrix(quality2cat~.-quality -quality3cat,data=red_test)[,-1]
+
+# Jenna: I'm not sure how to use the model.matrix function, so instead, I subsetted the data to the predictors/response variables we needed to perform the logistic regression
+redcat_train = red_train %>% select(-c(quality,quality3cat))
+redcat_test = red_test %>% select(-c(quality,quality3cat))
+
+log.fit = glm(quality2cat~.,data=redcat_train,family=binomial)
+log.probs = predict(log.fit, newdata=redcat_test, type="response")
+summary(log.fit)
+log.pred = rep("Low",318)
+log.pred[log.probs>0.5]="High"
+table(log.pred,redcat_test$quality2cat)
+log_error=sum(log.pred!=redcat_test$quality2cat)/nrow(redcat_test)
+```
+
+```{r Lasso}
+cv.fit1 = cv.glmnet(train.matrix, red_train$quality2cat, alpha=1, family="binomial", type.measure = "class",nfolds=10)
+plot(cv.fit1)
+probs = predict(cv.fit1, s="lambda.min", newx=test.matrix, type="response")
+glm.pred =rep("Low", nrow(red_test))
+glm.pred[probs>0.5]="High"
+table(glm.pred, red_test$quality2cat)
+mean((glm.pred)!=red_test$quality2cat)
+```
+
+```{r LDA}
+lda.fit=lda(red_train$quality2cat~. -quality -quality3cat, data=red_train)
+lda.pred=predict(lda.fit, red_test)
+lda.class=lda.pred$class
+table(lda.class, red_test$quality2cat)
+lda_error=mean(lda.class!=red_test$quality2cat)
+```
+
+```{r QDA}
+qda.fit = qda(red_train$quality2cat ~. -quality -quality3cat, data=red_train)
+qda.pred = predict(qda.fit, red_test)
+qda.class=lda.pred$class
+table(qda.class, red_test$quality2cat)
+qda_error=mean(qda.class!=red_test$quality2cat)
+```
+
+```{r KNN}
+# Cannot get this to run? Explicitly made train.quality2cat a matrix caused code to run.
+train.x <- scale(red_train[,1:11])
+test.x <- scale(red_test[,1:11])
+train.quality2cat <- as.matrix(red_train[,13])
+knnmisclass = 1
+knnvalue = 0
+
+for (i in 1:100){
+knn.pred <- knn(train.x, test.x, train.quality2cat, k=i)
+knn_error= mean(knn.pred!=red_test$quality2cat)
+if (knn_error < knnmisclass){
+  knnmisclass =knn_error
+  knnvalue = i
+}
+}
+
+knnmisclass
+knnvalue
+```
+# LASSO
+
+```{r lasso, include = TRUE}
+regfit.full = regsubsets(quality ~ ., data = red_train,nvmax=11)
+reg.summary = summary(regfit.full)
+which.max(reg.summary$adjr2)
+which.min(reg.summary$cp)
+which.min(reg.summary$bic)
+
+redpredictors <- model.matrix(quality~.-quality2cat-quality3cat,red_train)[,-1]
+redpredictorstest <- model.matrix(quality~.-quality2cat-quality3cat,red_test)[,-1]
+redoutcome <- red_train$quality
+grid = 10^seq(10,-2,length=100)
+
+lasso.fit <- glmnet(redpredictors, redoutcome, alpha=1,lambda=grid)
+cv.out <- cv.glmnet(redpredictors,redoutcome,alpha=1)
+bestlam = cv.out$lambda.min
+out=glmnet(redpredictors,redoutcome,alpha=1,lamda=grid)
+lass.pred=predict(out,type="response",newx=redpredictorstest, s=bestlam)
+sum(round(lass.pred)!=red_test$quality)/nrow(red_test)
+```
+# Ridge Regression
+
+```{r ridge, include = TRUE}
+ridge.fit <- glmnet(redpredictors, redoutcome, alpha=0,lambda=grid)
+cv.out <- cv.glmnet(redpredictors,redoutcome,alpha=0)
+bestlam = cv.out$lambda.min
+out=glmnet(redpredictors,redoutcome,alpha=0,lamda=grid)
+ridge.pred=predict(out,type="response",newx=redpredictorstest, s=bestlam)
+sum(round(ridge.pred)!=red_test$quality)/nrow(red_test)
+```
+
+****Classification*****
+
+Tree.wine=tree(quality~. - quality2cat - quality3cat, data=red_train)
+Draw.tree(tree.wine,cex=.4, print.levels=TRUE)
+Pred.wine=predict(tree.wine, red_test)
+Tree_error=mean((red_test$quality -pred.wine)^2)
+
+cv.wine = cv.tree(tree.wine,FUN=prune.tree)
+par(mfrow=c(1,20)
+plot(cv.wine$size,cv.wine$dev,type=”b”)
+cv.wine$size[which.min(cv.wine$dev)]
+
+pruned.wine=prune.tree(tree.wine,best=6)
+plot(pruned.wine)
+text(pruned.wine,pretty=0)
+pred.pruned=predict(pruned.wine, red_test)
+mean((red_test$quality – pred.pruned)^2)
