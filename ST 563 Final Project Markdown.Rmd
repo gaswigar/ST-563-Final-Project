@@ -17,6 +17,10 @@ library(MASS)
 library(class)
 library(tidyverse)
 library(leaps)
+library(maptree)
+library(tree)
+library(pastecs)
+library(kableExtra) # This library did not work?
 ```
 
 ```{r Fileread, include=FALSE, message=FALSE, warning=FALSE}
@@ -25,7 +29,18 @@ library(leaps)
 
 setwd("C:/Users/ajtan/Dropbox/2020 Summer/ST 563/Final Project/ST-563-Final-Project")
 red<-read_delim("./Wine Data-Original/winequality-red.csv",delim = ';')
+# red <-read.csv(file ="C:/Users/YYUE/Desktop/ST563/Project/winequality-red.csv", header = TRUE, sep = ";")
 ```
+
+```{r Histograms}
+stat.desc(red)
+par(mfrow=c(3,4))
+names = names(red)
+for (name in names) {
+  hist(red[,name],xlab=name,main=paste("Histogram of",name))
+}
+```
+
 
 ```{r Categorization, include = TRUE}
 # Creating Categorical Variables: quality2cat, quality3cat
@@ -74,6 +89,54 @@ lm.fit = lm(quality ~.-quality2cat -quality3cat, data=red_train)
 lm.pred = predict(lm.fit, red_test)
 summary(lm.fit)
 sum(round(lm.pred)!=red_test$quality)/nrow(red_test)
+
+# Obtain Best Subset Model
+best.fit=regsubsets(quality~. - quality2cat - quality3cat, data=red_train, nvmax=11)
+train.matrix=model.matrix(quality~. - quality2cat - quality3cat, data=red_train, nvmax=11)
+train_MSE=rep(NA, 11)
+for (i in 1:11){
+     coef=coef(best.fit,id=i)
+pred = train.matrix[, names(coef)] %*% coef
+train_MSE[i] = mean((red_train$quality  - pred)^2)
+}
+plot(train_MSE, xlab = "Number of Predictors", ylab="Training MSE", type = "b")
+
+test.matrix = model.matrix(quality~. - quality2cat - quality3cat, data = red_test, nvmax =11)
+test_MSE = rep(NA, 11)
+for(i in 1:11){
+coef =coef(best.fit, id = i)
+pred =test.matrix[, names(coef)] %*% coef
+test_MSE[i] = mean((red_test$quality  - pred)^2)
+}
+plot(test_MSE, xlab = "Number of Predictors", ylab="Testing MSE", type = "b")
+
+which.min(test_MSE)
+
+test_MSE[6]
+
+coef(best.fit, which.min(test_MSE))
+
+best.subset.fit=summary(best.fit)
+which.min(best.subset.fit$cp)
+which.min(best.subset.fit$bic)
+which.max(best.subset.fit$adjr2)
+
+#Forward
+fwd=regsubsets(quality~. -quality2cat -quality3cat,data=red_train,nvmax=11,method="forward")
+fwd.fit=summary(fwd)
+which.min(fwd.fit$cp)
+which.min(fwd.fit$bic)
+which.max(fwd.fit$adjr2)
+coef(fwd,id=6)
+
+#Backward
+bwd=regsubsets(quality~. -quality2cat -quality3cat,data=red_train,nvmax=11,method="backward")
+bwd.fit=summary(bwd)
+which.min(bwd.fit$cp)
+which.min(bwd.fit$bic)
+which.max(bwd.fit$adjr2)
+coef(bwd,id=6)
+
 ```
 
 ```{r LogisticReg}
@@ -170,6 +233,25 @@ bestlam = cv.out$lambda.min
 out=glmnet(redpredictors,redoutcome,alpha=0,lamda=grid)
 ridge.pred=predict(out,type="response",newx=redpredictorstest, s=bestlam)
 sum(round(ridge.pred)!=red_test$quality)/nrow(red_test)
+```
+
+# Classification
+```{r}
+Tree.wine=tree(quality~. - quality2cat - quality3cat, data=red_train)
+Draw.tree(tree.wine,cex=.4, print.levels=TRUE)
+Pred.wine=predict(tree.wine, red_test)
+Tree_error=mean((red_test$quality -pred.wine)^2)
+
+cv.wine = cv.tree(tree.wine,FUN=prune.tree)
+par(mfrow=c(1,20))
+plot(cv.wine$size,cv.wine$dev,type="b")
+cv.wine$size[which.min(cv.wine$dev)]
+
+pruned.wine=prune.tree(tree.wine,best=6)
+plot(pruned.wine)
+text(pruned.wine,pretty=0)
+pred.pruned=predict(pruned.wine, red_test)
+mean((red_test$quality - pred.pruned)^2)
 ```
 
 # Bagged Tree
