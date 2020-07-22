@@ -5,6 +5,11 @@ date: "June 30, 2020"
 output: html_document
 ---
 
+```{r}
+head(red)
+```
+
+
 ```{r Setup, include=FALSE, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(boot)
@@ -20,7 +25,7 @@ library(leaps)
 library(maptree)
 library(tree)
 library(pastecs)
-library(kableExtra) # This library did not work?
+# library(kableExtra) # This library did not work?
 ```
 
 ```{r Fileread, include=FALSE, message=FALSE, warning=FALSE}
@@ -39,6 +44,7 @@ names = names(red)
 for (name in names) {
   hist(red[,name],xlab=name,main=paste("Histogram of",name))
 }
+# @Yang - This histogram function doesn't run for me? -Jenna
 ```
 
 
@@ -160,11 +166,16 @@ sum(log.pred!=redcat_test$quality2cat)/nrow(redcat_test)
 ```{r Lasso}
 cv.fit1 = cv.glmnet(train.matrix, red_train$quality2cat, alpha=1, family="binomial", type.measure = "class",nfolds=10)
 plot(cv.fit1)
+bestlam=cv.fit1$lambda.min
 probs = predict(cv.fit1, s="lambda.min", newx=test.matrix, type="response")
 glm.pred =rep("Low", nrow(red_test))
 glm.pred[probs>0.5]="High"
 table(glm.pred, red_test$quality2cat)
 mean((glm.pred)!=red_test$quality2cat)
+
+out=glmnet(train.matrix, red_train$quality2cat, alpha=1, family="binomial", type.measure = "class",nfolds=10)
+lasso.coef=predict(out,type="coefficients",s=bestlam)[1:12,]
+lasso.coef
 ```
 
 ```{r LDA}
@@ -184,7 +195,6 @@ mean(qda.class!=red_test$quality2cat)
 ```
 
 ```{r KNN}
-# Cannot get this to run? Explicitly made train.quality2cat a matrix caused code to run.
 train.x <- scale(red_train[,1:11])
 test.x <- scale(red_test[,1:11])
 train.quality2cat <- as.matrix(red_train[,13])
@@ -237,7 +247,7 @@ sum(round(ridge.pred)!=red_test$quality)/nrow(red_test)
 
 # Classification
 ```{r}
-Tree.wine=tree(quality~. - quality2cat - quality3cat, data=red_train)
+Tree.wine=tree(quality~. -quality2cat -quality3cat, data=red_train)
 Draw.tree(tree.wine,cex=.4, print.levels=TRUE)
 Pred.wine=predict(tree.wine, red_test)
 Tree_error=mean((red_test$quality -pred.wine)^2)
@@ -252,6 +262,7 @@ plot(pruned.wine)
 text(pruned.wine,pretty=0)
 pred.pruned=predict(pruned.wine, red_test)
 mean((red_test$quality - pred.pruned)^2)
+
 ```
 
 # Bagged Tree
