@@ -174,7 +174,7 @@ head(red_train_numeric$quality2cat_num)
 head(red_train_numeric$quality2cat)
 
 #Finding Youden Point for Probability Threhshold. 
-rocobj <- roc(redcat_train$quality2cat_num,log.fit$fitted.values)
+rocobj <- roc(red_train_numeric$quality2cat_num,log.fit$fitted.values)
 youden<-coords(rocobj, "best",transpose = TRUE)
 youden
 plot(rocobj)
@@ -186,7 +186,7 @@ log.pred<-as.numeric(ifelse(log.probs>youden[1],1,0))
 
 #Confusion Matrix
 table(log.pred,red_test_numeric$quality2cat_num)
-#Accuracy 
+#Misclassification Rate 
 mean(log.pred!=red_test_numeric$quality2cat_num)
 ```
 
