@@ -25,6 +25,7 @@ library(leaps)
 library(maptree)
 library(tree)
 library(pastecs)
+library(pROC)
 # library(kableExtra) # This library did not work?
 ```
 
@@ -34,6 +35,7 @@ library(pastecs)
 
 setwd("C:/Users/ajtan/Dropbox/2020 Summer/ST 563/Final Project/ST-563-Final-Project")
 red<-read_delim("./Wine Data-Original/winequality-red.csv",delim = ';')
+colnames(red) <- make.names(colnames(red))
 # red <-read.csv(file ="C:/Users/YYUE/Desktop/ST563/Project/winequality-red.csv", header = TRUE, sep = ";")
 ```
 
@@ -77,15 +79,15 @@ write_csv(red_test,"./Test and Training Data/testing.csv")
 
 ```{r Plots}
 red_train %>% 
-  dplyr::select(c("fixed acidity","volatile acidity","citric acid","pH","quality")) %>%
+  dplyr::select(c("fixed.acidity","volatile.acidity","citric.acid","pH","quality")) %>%
   ggpairs()
 
 red_train %>% 
-  dplyr::select(c("free sulfur dioxide","total sulfur dioxide","chlorides","sulphates","quality")) %>%
+  dplyr::select(c("free.sulfur.dioxide","total.sulfur.dioxide","chlorides","sulphates","quality")) %>%
   ggpairs()
 
 red_train %>% 
-  dplyr::select(c("residual sugar","alcohol","density")) %>%
+  dplyr::select(c("residual.sugar","alcohol","density")) %>%
   ggpairs()
 ```
 
@@ -150,17 +152,42 @@ set.seed(1)
 train.matrix=model.matrix(quality2cat~.-quality -quality3cat,data=red_train)[,-1]
 test.matrix=model.matrix(quality2cat~.-quality -quality3cat,data=red_test)[,-1]
 
-# Jenna: I'm not sure how to use the model.matrix function, so instead, I subsetted the data to the predictors/response variables we needed to perform the logistic regression
-redcat_train = red_train %>% select(-c(quality,quality3cat))
-redcat_test = red_test %>% select(-c(quality,quality3cat))
 
-log.fit = glm(quality2cat~.,data=redcat_train,family=binomial)
-log.probs = predict(log.fit, newdata=redcat_test, type="response")
+#Creating 1-high,0-low numeric variables. 
+red_train_numeric<-red_train %>%
+  mutate(quality2cat_num=ifelse(quality > 0 & quality <= 5,0,1))
+
+red_test_numeric<-red_test %>%
+  mutate(quality2cat_num=ifelse(quality > 0 & quality <= 5,0,1))
+
+
+#Fitting Logistic regression to numerical variable. 
+log.fit = glm(quality2cat_num~.-quality2cat-quality-quality3cat,
+              data=red_train_numeric,
+              family=binomial)
+
 summary(log.fit)
-log.pred = rep("Low",318)
-log.pred[log.probs>0.5]="High"
-table(log.pred,redcat_test$quality2cat)
-sum(log.pred!=redcat_test$quality2cat)/nrow(redcat_test)
+
+#If 1 Corresponds to "High" then everything is working correctly.
+head(log.fit$y)
+head(red_train_numeric$quality2cat_num)
+head(red_train_numeric$quality2cat)
+
+#Finding Youden Point for Probability Threhshold. 
+rocobj <- roc(redcat_train$quality2cat_num,log.fit$fitted.values)
+youden<-coords(rocobj, "best",transpose = TRUE)
+youden
+plot(rocobj)
+
+#Changing PRedictions according to youden point
+log.probs = predict(log.fit, newdata=red_test_numeric, type="response")
+#If the probability is higher than the youdent point then we classify as 1-high. 
+log.pred<-as.numeric(ifelse(log.probs>youden[1],1,0))
+
+#Confusion Matrix
+table(log.pred,red_test_numeric$quality2cat_num)
+#Accuracy 
+mean(log.pred!=red_test_numeric$quality2cat_num)
 ```
 
 ```{r Lasso}
@@ -194,24 +221,46 @@ table(qda.class, red_test$quality2cat)
 mean(qda.class!=red_test$quality2cat)
 ```
 
-```{r KNN}
-train.x <- scale(red_train[,1:11])
-test.x <- scale(red_test[,1:11])
-train.quality2cat <- as.matrix(red_train[,13])
-knnmisclass = 1
-knnvalue = 0
+#KNN 
 
-for (i in 1:100){
-knn.pred <- knn(train.x, test.x, train.quality2cat, k=i)
-check = mean(knn.pred!=red_test$quality2cat)
-if (check < knnmisclass){
-  knnmisclass = check
-  knnvalue = i
-}
-}
+##Regression
 
-knnmisclass
-knnvalue
+```{r KNN Regression}
+set.seed(3333)
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+knn_fit_reg <- train(quality ~ .-quality2cat-quality3cat,
+                 data = red_train, 
+                 method = "knn",
+                 trControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 100)
+plot(knn_fit_reg)
+
+yhat.knn_reg = predict(knn_fit_reg,newdata=red_test)
+mean((yhat.knn_reg-red_test$quality)^2)
+
+```
+
+##Classifiation
+
+```{r KNN Classification}
+set.seed(3333)
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+knn_fit_clas <- train(quality2cat ~ .-quality-quality3cat,
+                 data = red_train, 
+                 method = "knn",
+                 trControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 100)
+
+plot(knn_fit_clas)
+yhat.knn_clas = predict(knn_fit_clas,newdata=red_test)
+conf_svm_sub<-confusionMatrix(
+  data = yhat.knn_clas,
+  reference = red_test$quality2cat)
+
+1-conf_svm_sub$overall[1]
 ```
 # LASSO
 
@@ -265,131 +314,204 @@ mean((red_test$quality - pred.pruned)^2)
 
 ```
 
+
 # Bagged Tree
+
+## Regression
+
 ```{r baggytreehours, include = TRUE}
-namecheck <- c("fixed.acidity","volatile.acidity","citric.acid","residual.sugar","chlorides","free.sulfur.dioxide","total.sulfur.dioxide","density","pH","sulphates","alcohol","quality","quality2cat","quality3cat")
+set.seed(58)
+bagfit_reg <- randomForest(quality ~.-quality2cat-quality3cat, data=red_train,mtry=11,importance=TRUE)
 
-red_train2 <- red_train
-names(red_train2) <- namecheck
-red_test2 <- red_test
-names(red_test2) <- namecheck
+yhat.bag_reg = predict(bagfit, newdata=red_test)
+mean((yhat.bag_reg-red_test$quality)^2)
+importance(bagfit_reg)
+varImpPlot(bagfit_reg)
 
-bagfit <- randomForest(quality ~.-quality2cat-quality3cat, data=red_train2,mtry=11,importance=TRUE)
 
-yhat.bag = predict(bagfit, newdata=red_test2)
-mean((yhat.bag-red_test2$quality)^2)
-importance(bagfit)
-varImpPlot(bagfit)
+```
+
+## Classification
+
+
+```{r baggytreehours, include = TRUE}
+set.seed(86)
+bagfit_clas <- randomForest(quality2cat ~.-quality-quality3cat, data=red_train,mtry=11,importance=TRUE)
+
+yhat.bag_clas = predict(bagfit_clas, newdata=red_test)
+conf_bag_clas<-confusionMatrix(
+  data = yhat.bag_clas,
+  reference = red_test$quality2cat)
+
+importance(bagfit_clas)
+varImpPlot(bagfit_clas)
 ```
 
 # Random Forest
+
+## Regression 
+
 ```{r randomforesthours, include = TRUE}
-bestmse = 10000
-bestfitcount = 0
-set.seed(1)
-for(i in 1:10){
-  rffit <- randomForest(quality ~.-quality2cat-quality3cat,data=red_train2,mtry=i,importance=TRUE)
-  yhat.rf = predict(rffit,newdata=red_test2)
-  rfmse <- mean((yhat.rf-red_test2$quality)^2)
-  if(rfmse < bestmse){
-    bestmse = rfmse
-    bestfitcount = i
-    bestrf = rffit
-    bestpred = yhat.rf
-  }
-}
-
-bestmse
-bestfitcount
-bestrf
-importance(bestrf)
-varImpPlot(bestrf)
-```
-
-
-```{r linear SVM}
-set.seed(48)
+set.seed(14)
 train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+tune_grid<-data.frame(mtry=1:11)
+rf_reg <- train(quality ~.-quality2cat-quality3cat, 
+                      data=red_train, 
+                      method='rf', 
+                      trControl=train_control,
+                      tuneGrid=tune_grid)
 
-svm1 <- train(quality2cat ~. -quality, 
-              data = red_train,  
-              method = "svmLinear", 
-              trControl = train_control,  
-              preProcess = c("center","scale"), 
-              tuneGrid = expand.grid(C = seq(0.1, 2, length = 20)))
+plot(rf_reg)
+importance(rf_reg$finalModel)
+varImpPlot(rf_reg$finalModel)
+yhat.rf_reg = predict(rf_reg,newdata=red_test)
+mean((yhat.rf_reg-red_test$quality)^2)
+```
+## Classification
 
-test_pred_svm1 <- predict(svm1,
-                    newdata = red_test,
-                    type = "raw")
+```{r}
+set.seed(78)
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+tune_grid<-data.frame(mtry=1:11)
+rf_clas <- train(quality2cat ~.-quality-quality3cat, 
+                      data=red_train, 
+                      method='rf', 
+                      trControl=train_control,
+                      tuneGrid=tune_grid)
 
-conf_svm1<-confusionMatrix(
-  data = test_pred_svm1, 
+plot(rf_clas)
+importance(rf_clas$finalModel)
+varImpPlot(rf_clas$finalModel)
+yhat.rf_clas = predict(rf_clas,newdata=red_test)
+
+conf_svm_sub<-confusionMatrix(
+  data = yhat.rf_clas,
   reference = red_test$quality2cat)
 
-svm1_results<-data.frame(Type="Linear",
-                         Accuracy=conf_svm1$overall[1],
-                         PreCision=conf_svm1$byClass[5],
-                         Recall=conf_svm1$byClass[6]) 
+
+conf_svm_sub
+
 ```
 
 
-```{r Radial SVM}
-set.seed(25)
-train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
 
-svm2 <- train(quality2cat ~. -quality, 
-              data = red_train,  
-              method = "svmRadial", 
-              trControl = train_control, 
-              preProcess = c("center","scale"), 
+#Radial Gupta Subset Classification
+
+```{r}
+set.seed(29)
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+gupta_vars<-c('volatile acidity','chlorides','free sulfur dioxide','total sulfur dioxide','pH','sulphates','alcohol','quality2cat')
+
+svm_sub <- train(quality2cat ~.,
+              data = red_train %>% select(gupta_vars),  
+              method = "svmRadial",
+              trControl = train_control,
+              preProcess = c("center","scale"),
               tuneLength = 10)
 
 
-test_pred_svm2 <- predict(svm2,
+test_pred_svm_sub <- predict(svm_sub,
                     newdata = red_test,
                     type = "raw")
 
-conf_svm2<-confusionMatrix(
-  data = test_pred_svm2, 
+conf_svm_sub<-confusionMatrix(
+  data = test_pred_svm_sub,
   reference = red_test$quality2cat)
 
-svm2_results<-data.frame(Type="Radial",
-                         Accuracy=conf_svm2$overall[1],
-                         PreCision=conf_svm2$byClass[5],
-                         Recall=conf_svm2$byClass[6]) 
+
+conf_svm_sub
+svm_sub_results<-data.frame(Type="Classification Gupta Subset",
+                         Accuracy=conf_svm_sub$overall[1],
+                         Precision=conf_svm_sub$byClass[5],
+                         Recall=conf_svm_sub$byClass[6])
+
+
 ```
 
+#Radial Full Classification
+
+```{r Radial SVM}
+set.seed(29)
+
+svm_full <- train(quality2cat ~.-quality-quality3cat,
+              data = red_train ,  
+              method = "svmRadial",
+              trControl = train_control,
+              preProcess = c("center","scale"),
+              tuneLength = 10)
 
 
-```{r Polynomial SVM}
+test_pred_svm_full <- predict(svm_full,
+                             newdata = red_test,
+                             type = "raw")
+
+conf_svm_full<-confusionMatrix(
+  data = test_pred_svm_full,
+  reference = red_test$quality2cat)
+
+
+conf_svm_full
+svm_full_results<-data.frame(Type="Classification Full",
+                         Accuracy=conf_svm_full$overall[1],
+                         Precision=conf_svm_full$byClass[5],
+                         Recall=conf_svm_full$byClass[6])
+
+```
+
+#Radial Gupta Regreession
+
+```{r}
 set.seed(21)
-svm3 <- train(quality2cat ~. -quality, 
-              data = red_train, 
-              method = "svmPoly", 
-              trControl = train_control, 
-              preProcess = c("center","scale"), 
-              tuneLength = 4)
 
-test_pred_svm3 <- predict(svm3,
+svm_full_reg <- train(quality ~.-quality2cat -quality3cat,
+              data = red_train ,  
+              method = "svmRadial",
+              trControl = train_control,
+              preProcess = c("center","scale"),
+              tuneLength = 10)
+
+test_pred_svm_full_reg <- predict(svm_full_reg,
                     newdata = red_test,
                     type = "raw")
 
-conf_svm3<-confusionMatrix(
-  data = test_pred_svm3, 
-  reference = red_test$quality2cat)
+mean((test_pred_svm_full_reg-red_test$quality)^2)
 
-svm3_results<-data.frame(Type="Polynomial",
-                         Accuracy=conf_svm3$overall[1],
-                         PreCision=conf_svm3$byClass[5],
-                         Recall=conf_svm3$byClass[6]) 
 ```
 
-```{r SVM Results}
-svm_results<-bind_rows(svm1_results,
-                       svm2_results,
-                       svm3_results) %>%
-  mutate(MissClass=1-Accuracy) %>%
-  kable()
+#Radial Subset Regreession
+
+```{r}
+set.seed(23)
+
+svm_sub_reg <- train(quality ~.-quality2cat,
+              data = red_train %>% select(gupta_vars,quality),  
+              method = "svmRadial",
+              trControl = train_control,
+              preProcess = c("center","scale"),
+              tuneLength = 10)
+
+test_pred_svm_sub_reg <- predict(svm_sub_reg,
+                    newdata = red_test,
+                    type = "raw")
+
+mean((test_pred_svm_sub_reg-red_test$quality)^2)
+```
+
+
+```{r}
+
+svm_full_results<-bind_cols(svm_full_results,MSE=mean((test_pred_svm_full_reg-red_test$quality)^2))
+svm_sub_results<-bind_cols(svm_sub_results,MSE=mean((test_pred_svm_sub_reg-red_test$quality)^2))
+
+
+svm_results<-bind_rows(svm_full_results,
+                       svm_sub_results) %>%
+  mutate('Misclassification Rate'=1-Accuracy) 
 
 svm_results
 ```
+
+
+
+
+
