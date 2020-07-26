@@ -145,6 +145,21 @@ which.min(bwd.fit$bic)
 which.max(bwd.fit$adjr2)
 coef(bwd,id=6)
 
+
+best_bic<-data.frame(bic=summary(best.fit)$bic,
+           num_var=1:11,
+           Method="Best") %>%
+  mutate(Min=ifelse(num_var==which.min(summary(best.fit)$bic),"Minimum",""))
+  
+
+ggplot(best_bic,aes(x=num_var,y=bic))+
+  geom_line()+
+  geom_point(aes(color=Min))+
+  ggtitle("Training BIC for Best Subsets Regression")+
+  xlab("Number of Variables")+
+  ylab("BIC")+ 
+  theme(legend.position = "none")
+
 ```
 
 ```{r LogisticReg}
@@ -162,7 +177,7 @@ red_test_numeric<-red_test %>%
 
 
 #Fitting Logistic regression to numerical variable. 
-log.fit = glm(quality2cat_num~.-quality2cat-quality-quality3cat,
+log.fit = stats::glm(quality2cat_num~.-quality2cat-quality-quality3cat,
               data=red_train_numeric,
               family=binomial)
 
